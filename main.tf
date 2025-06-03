@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 terraform {
-  required_version = ">= 1.11.4"
+  required_version = ">= 1.3.0"
 
   required_providers {
     aws = {
@@ -24,20 +24,20 @@ resource "aws_vpc" "main" {
 
 # Create Subnets
 resource "aws_subnet" "subnet1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-#  map_public_ip_on_launch = true
-  availability_zone = "eu-west-2a" # Change this to your preferred AZ
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "us-east-1a" # Change this to your preferred AZ
   tags = {
     Name = "main-subnet-1"
   }
 }
 
 resource "aws_subnet" "subnet2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-#  map_public_ip_on_launch = true
-  availability_zone = "eu-west-2b" # Change this to your preferred AZ
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.2.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = "us-east-1b" # Change this to your preferred AZ
   tags = {
     Name = "main-subnet-2"
   }
@@ -46,7 +46,7 @@ resource "aws_subnet" "subnet2" {
 resource "aws_subnet" "private_subnet1" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.3.0/24"
-  availability_zone = "eu-west-2a" # Change as needed
+  availability_zone = "us-east-1a" # Change as needed
   tags = {
     Name = "private-subnet-1"
   }
@@ -55,7 +55,7 @@ resource "aws_subnet" "private_subnet1" {
 resource "aws_subnet" "private_subnet2" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.4.0/24"
-  availability_zone = "eu-west-2b" # Change as needed
+  availability_zone = "us-east-1b" # Change as needed
   tags = {
     Name = "private-subnet-2"
   }
@@ -103,7 +103,7 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   route {
-    cidr_block = "0.0.0.0/0"
+    cidr_block     = "0.0.0.0/0"
     nat_gateway_id = aws_nat_gateway.main.id
   }
 
@@ -241,46 +241,14 @@ resource "aws_launch_template" "app_lt" {
   image_id      = data.aws_ami.ubuntu.id
   instance_type = "t3.micro"
   metadata_options {
-    http_tokens = "required" # Enforce IMDSv2
+    http_tokens   = "required" # Enforce IMDSv2
     http_endpoint = "enabled"
   }
 
   key_name = "solo-access-key" # Replace with your key pair name
 
-  user_data = base64encode(<<-EOF
-              #!/bin/bash
-
-              sleep 120
-              sudo apt update -y
-              sudo apt install python3-pip -y
-              sudo apt install git -y
-              sudo apt install python3-venv -y
-              cd /home/ubuntu
-              git clone https://github.com/ooghenekaro/flask-app.git
-              cd flask-app
-              sudo pip3 install -r requirements.txt --break-system-packages
-              echo "[Unit]
-              Description=Flask Application
-              After=network.target
-
-              [Service]
-              User=ubuntu
-              WorkingDirectory=/home/ubuntu/flask-app
-              ExecStart=/usr/bin/python3 /home/ubuntu/flask-app/rest.py
-              Environment='PATH=/usr/bin'
-              Restart=always
-
-              [Install]
-              WantedBy=multi-user.target" | sudo tee /etc/systemd/system/flask-app.service
-              sudo systemctl daemon-reload
-              sudo systemctl enable flask-app
-              sudo systemctl start flask-app
-              EOF
-
-  )
-
+  user_data = file("${path.module}/app.sh") # Path to your user data script
   vpc_security_group_ids = [aws_security_group.app_sg.id]
-
 
   tag_specifications {
     resource_type = "instance"
@@ -289,6 +257,7 @@ resource "aws_launch_template" "app_lt" {
     }
   }
 }
+
 
 # Auto Scaling Group
 resource "aws_autoscaling_group" "app_asg" {
@@ -301,9 +270,9 @@ resource "aws_autoscaling_group" "app_asg" {
 
   target_group_arns = [aws_lb_target_group.app_tg.arn]
 
-  min_size           = 1
-  max_size           = 3
-  desired_capacity   = 1
+  min_size         = 1
+  max_size         = 3
+  desired_capacity = 1
 
   health_check_type         = "EC2"
   health_check_grace_period = 300
@@ -327,73 +296,73 @@ resource "aws_autoscaling_policy" "request_count_policy" {
   target_tracking_configuration {
     predefined_metric_specification {
       predefined_metric_type = "ALBRequestCountPerTarget"
-      resource_label         = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.app_tg.arn_suffix}"
+      resource_label         = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.app_tg.name}"
     }
 
-    target_value         = 50  # Target 50 requests per target
-    /*
-    estimated_instance_warmup = 120 
-    scale_in_cooldown    = 120 # 5 minutes cooldown period for scale in
-    scale_out_cooldown   = 120 # 5 minutes cooldown period for scale out
-    */
+    target_value = 50 # Target 50 requests per target
+    # 
+    # estimated_instance_warmup = 120 
+    # scale_in_cooldown    = 120 # 5 minutes cooldown period for scale in
+    # scale_out_cooldown   = 120 # 5 minutes cooldown period for scale out
+    # 
 
-   }
+  }
 }
 
 resource "aws_flow_log" "vpc_flow_log" {
-  vpc_id = aws_vpc.main.id
+  vpc_id               = aws_vpc.main.id
   log_destination_type = "cloud-watch-logs"
-  log_destination = aws_cloudwatch_log_group.vpc_logs.arn
-  traffic_type = "ALL"
+  log_destination      = aws_cloudwatch_log_group.vpc_logs.arn
+  traffic_type         = "ALL"
 }
 resource "aws_cloudwatch_log_group" "vpc_logs" {
-  name = "/aws/vpc/flow-logs"
+  name              = "/aws/vpc/flow-logs"
   retention_in_days = 5
 }
 
 
-/*
+#
 # scaling policy for high and low CPU utilization
-resource "aws_autoscaling_policy" "cpu_policy" {
-  name                   = "cpu-scaling-policy"
-  scaling_adjustment     = 1
-  adjustment_type        = "ChangeInCapacity"
-  cooldown               = 300
+# resource "aws_autoscaling_policy" "cpu_policy" {
+#   name                   = "cpu-scaling-policy"
+#   scaling_adjustment     = 1
+#   adjustment_type        = "ChangeInCapacity"
+#   cooldown               = 300
 
-  autoscaling_group_name = aws_autoscaling_group.app_asg.name
-}
+#   autoscaling_group_name = aws_autoscaling_group.app_asg.name
+# }
 
-resource "aws_cloudwatch_metric_alarm" "cpu_alarm_high" {
-  alarm_name          = "cpu-alarm-high"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = "2"
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = "120"
-  statistic           = "Average"
-  threshold           = "80"
+# resource "aws_cloudwatch_metric_alarm" "cpu_alarm_high" {
+#   alarm_name          = "cpu-alarm-high"
+#   comparison_operator = "GreaterThanThreshold"
+#   evaluation_periods  = "2"
+#   metric_name         = "CPUUtilization"
+#   namespace           = "AWS/EC2"
+#   period              = "120"
+#   statistic           = "Average"
+#   threshold           = "80"
 
-  alarm_actions = [aws_autoscaling_policy.cpu_policy.arn]
+#   alarm_actions = [aws_autoscaling_policy.cpu_policy.arn]
 
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.app_asg.name
-  }
-}
+#   dimensions = {
+#     AutoScalingGroupName = aws_autoscaling_group.app_asg.name
+#   }
+# }
 
-resource "aws_cloudwatch_metric_alarm" "cpu_alarm_low" {
-  alarm_name          = "cpu-alarm-low"
-  comparison_operator = "LessThanThreshold"
-  evaluation_periods  = "2"
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = "120"
-  statistic           = "Average"
-  threshold           = "20"
+# resource "aws_cloudwatch_metric_alarm" "cpu_alarm_low" {
+#   alarm_name          = "cpu-alarm-low"
+#   comparison_operator = "LessThanThreshold"
+#   evaluation_periods  = "2"
+#   metric_name         = "CPUUtilization"
+#   namespace           = "AWS/EC2"
+#   period              = "120"
+#   statistic           = "Average"
+#   threshold           = "20"
 
-  alarm_actions = [aws_autoscaling_policy.cpu_policy.arn]
+#   alarm_actions = [aws_autoscaling_policy.cpu_policy.arn]
 
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.app_asg.name
-  }
-}
-*/
+#   dimensions = {
+#     AutoScalingGroupName = aws_autoscaling_group.app_asg.name
+#   }
+# }
+# 
