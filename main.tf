@@ -2,6 +2,18 @@ provider "aws" {
   region = "us-east-1" # Change this to your preferred region
 }
 
+terraform {
+  required_version = "== 1.12.1"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.99.0"
+    }
+  }
+}
+
+
 # Create VPC
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
@@ -51,7 +63,7 @@ resource "aws_subnet" "private_subnet2" {
 
 # Allocate Elastic IP for NAT Gateway
 resource "aws_eip" "nat_eip" {
-  vpc = true
+  domain = "vpc"
 }
 
 # Create NAT Gateway
@@ -195,6 +207,7 @@ resource "aws_lb" "main" {
   subnets            = [aws_subnet.subnet1.id, aws_subnet.subnet2.id]
 
   enable_deletion_protection = false
+  drop_invalid_header_fields = true
 
   tags = {
     Name = "app-lb"
@@ -227,6 +240,10 @@ resource "aws_launch_template" "app_lt" {
   name_prefix   = "app-launch-template-"
   image_id      = data.aws_ami.ubuntu.id
   instance_type = "t3.micro"
+  metadata_options {
+    http_tokens = "required" # Enforce IMDSv2
+    http_endpoint = "enabled"
+  }
 
   key_name = "solo-access-key" # Replace with your key pair name
 
@@ -321,6 +338,17 @@ resource "aws_autoscaling_policy" "request_count_policy" {
     */
 
    }
+}
+
+resource "aws_flow_log" "vpc_flow_log" {
+  vpc_id = aws_vpc.main.id
+  log_destination_type = "cloud-watch-logs"
+  log_destination = aws_cloudwatch_log_group.vpc_logs.arn
+  traffic_type = "ALL"
+}
+resource "aws_cloudwatch_log_group" "vpc_logs" {
+  name = "/aws/vpc/flow-logs"
+  retention_in_days = 5
 }
 
 
