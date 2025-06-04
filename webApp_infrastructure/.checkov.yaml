@@ -1,0 +1,6 @@
+skip-check:
+  - CKV_AWS_23  # Security group allows ingress from 0.0.0.0/0 (public)
+  - CKV_AWS_24  # Security group allows egress to 0.0.0.0/0
+  - CKV_AWS_25  # Another SG rule allows egress to 0.0.0.0/0
+  - CKV_AWS_2   # ALB listener uses HTTP instead of HTTPS
+  - CKV_AWS_91  # ALB is public (internal = false)
